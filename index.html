@@ -18,7 +18,7 @@
       <li><a href="#tabelas"><span class="step-num">02</span>Estrutura das tabelas</a></li>
       <li><a href="#procedure"><span class="step-num">03</span>Procedure</a></li>
       <li><a href="#indice"><span class="step-num">04</span>Índice + EXPLAIN</a></li>
-      <li><a href="#evidencias"><span class="step-num">05</span>Evidências (imagens)</a></li>
+      <li><a href="#evidencias"><span class="step-num">05</span>Evidências</a></li>
       <li><a href="#reflexao"><span class="step-num">06</span>Reflexão técnica</a></li>
     </ul>
   </nav>
@@ -208,22 +208,17 @@ WHERE paciente_id = 3
 
     <section id="evidencias">
       <div class="section-tag">05 · Evidências</div>
-      <h2>Capturas de execução</h2>
-      <p>Capturas reais de execução do ambiente MySQL utilizado.</p>
-      <div class="shots-grid">
-        <figure>
-          <img src="assets/explain-antes.png" alt="EXPLAIN antes do índice">
-          <figcaption>EXPLAIN — antes do índice composto</figcaption>
-        </figure>
-        <figure>
-          <img src="assets/explain-depois.png" alt="EXPLAIN depois do índice">
-          <figcaption>EXPLAIN — depois do índice composto</figcaption>
-        </figure>
-        <figure>
-          <img src="assets/procedure.png" alt="Execução da procedure">
-          <figcaption>Execução de sp_contar_consultas_2025</figcaption>
-        </figure>
-      </div>
+      <h2>Execução no ambiente MySQL</h2>
+      <p>Testes executados no MySQL Workbench, validando tanto a procedure quanto o efeito do índice composto no plano de execução.</p>
+
+      <h3>EXPLAIN antes do índice</h3>
+      <p>Com <code class="inline">paciente_id</code> e <code class="inline">data_consulta</code> sem índice, o plano retornou <code class="inline">type: ALL</code> e <code class="inline">key: NULL</code>, indicando varredura completa da tabela <code class="inline">consultas</code> para localizar as linhas do filtro.</p>
+
+      <h3>EXPLAIN depois do índice</h3>
+      <p>Após criar <code class="inline">idx_consultas_paciente_data</code>, o mesmo <code class="inline">EXPLAIN</code> passou a mostrar <code class="inline">type: ref</code> (ou <code class="inline">range</code>, dependendo da condição) e <code class="inline">key: idx_consultas_paciente_data</code>, com número de linhas examinadas reduzido ao subconjunto que realmente atende ao filtro.</p>
+
+      <h3>Execução da procedure</h3>
+      <p>A chamada <code class="inline">CALL sp_contar_consultas_2025(1, @total1)</code> seguida de <code class="inline">SELECT @total1</code> retornou o valor <code class="inline">2</code>, confirmando que o cursor contou corretamente as consultas de 2025 do paciente informado.</p>
     </section>
 
     <section id="reflexao">
