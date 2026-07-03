@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>lab_23092006 — Laboratório MySQL</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="shell">
+
+  <nav class="side">
+    <div class="brand">lab_23092006</div>
+    <div class="brand-sub">Kevin Rhoden · Documentação técnica</div>
+    <ul>
+      <li><a href="#identificacao"><span class="step-num">00</span>Identificação</a></li>
+      <li><a href="#schema"><span class="step-num">01</span>Banco de dados</a></li>
+      <li><a href="#tabelas"><span class="step-num">02</span>Estrutura das tabelas</a></li>
+      <li><a href="#procedure"><span class="step-num">03</span>Procedure</a></li>
+      <li><a href="#indice"><span class="step-num">04</span>Índice + EXPLAIN</a></li>
+      <li><a href="#evidencias"><span class="step-num">05</span>Evidências (imagens)</a></li>
+      <li><a href="#reflexao"><span class="step-num">06</span>Reflexão técnica</a></li>
+    </ul>
+  </nav>
+
+  <main>
+
+    <section class="hero" id="identificacao">
+      <div class="eyebrow">Atividade prática · Engenharia de dados</div>
+      <h1>Laboratório MySQL <code>lab_23092006</code></h1>
+      <p>Modelagem relacional, objeto de banco de dados (procedure com cursor) e otimização de consultas via índice composto, aplicados a um domínio de prontuário clínico simplificado.</p>
+
+      <div class="meta-grid">
+        <div class="meta-cell">
+          <div class="k">Autor</div>
+          <div class="v">Kevin Rhoden</div>
+        </div>
+        <div class="meta-cell">
+          <div class="k">Matrícula</div>
+          <div class="v">23092006</div>
+        </div>
+        <div class="meta-cell">
+          <div class="k">Ambiente</div>
+          <div class="v">MySQL 8.0</div>
+        </div>
+        <div class="meta-cell">
+          <div class="k">Schema</div>
+          <div class="v">lab_23092006</div>
+        </div>
+      </div>
+    </section>
+
+    <section id="schema">
+      <div class="section-tag">01 · Banco de dados</div>
+      <h2>Schema e modelagem</h2>
+      <p>O schema <code class="inline">lab_23092006</code> concentra quatro tabelas relacionadas por chave estrangeira: pacientes, consultas, prontuários e uma tabela de auditoria de apoio.</p>
+      <pre><code>CREATE DATABASE lab_23092006
+    CHARACTER SET utf8mb4
+    COLLATE utf8mb4_general_ci;
+
+USE lab_23092006;</code></pre>
+    </section>
+
+    <section id="tabelas">
+      <div class="section-tag">02 · Modelo relacional</div>
+      <h2>Estrutura das tabelas</h2>
+      <div class="tables-grid">
+        <div class="table-card">
+          <div class="head">pacientes</div>
+          <ul>
+            <li>id <span class="flag">PK · AUTO_INCREMENT</span></li>
+            <li>nome <span class="flag">VARCHAR(120)</span></li>
+            <li>cpf <span class="flag">CHAR(11) · UNIQUE</span></li>
+            <li>data_nasc <span class="flag">DATE</span></li>
+          </ul>
+        </div>
+        <div class="table-card">
+          <div class="head">consultas</div>
+          <ul>
+            <li>id <span class="flag">PK</span></li>
+            <li>paciente_id <span class="flag">FK → pacientes.id</span></li>
+            <li>data_consulta <span class="flag">DATE</span></li>
+            <li>especialidade <span class="flag">VARCHAR(80)</span></li>
+          </ul>
+        </div>
+        <div class="table-card">
+          <div class="head">prontuarios</div>
+          <ul>
+            <li>id <span class="flag">PK</span></li>
+            <li>consulta_id <span class="flag">FK → consultas.id</span></li>
+            <li>observacao <span class="flag">TEXT</span></li>
+          </ul>
+        </div>
+        <div class="table-card">
+          <div class="head">auditoria</div>
+          <ul>
+            <li>id <span class="flag">PK</span></li>
+            <li>tabela <span class="flag">VARCHAR(60)</span></li>
+            <li>operacao <span class="flag">VARCHAR(20)</span></li>
+            <li>registro_id <span class="flag">INT</span></li>
+            <li>usuario <span class="flag">VARCHAR(80)</span></li>
+            <li>criado_em <span class="flag">DATETIME</span></li>
+          </ul>
+        </div>
+      </div>
+
+      <h3>Chaves estrangeiras</h3>
+      <pre><code>ALTER TABLE consultas
+  ADD CONSTRAINT fk_consultas_paciente
+  FOREIGN KEY (paciente_id) REFERENCES pacientes(id)
+  ON DELETE CASCADE ON UPDATE CASCADE;
+
+ALTER TABLE prontuarios
+  ADD CONSTRAINT fk_prontuarios_consulta
+  FOREIGN KEY (consulta_id) REFERENCES consultas(id)
+  ON DELETE CASCADE ON UPDATE CASCADE;</code></pre>
+
+      <p>Massa de dados: 5 pacientes cadastrados e 10 consultas distribuídas entre 2024 e 2025, com prontuário correspondente para cada consulta.</p>
+    </section>
+
+    <section id="procedure">
+      <div class="section-tag">03 · Objeto SQL escolhido: Procedure</div>
+      <h2>sp_contar_consultas_2025</h2>
+      <p>Procedure que percorre, via <code class="inline">CURSOR</code>, as consultas de um paciente no ano de 2025 e retorna a contagem. Valida a existência do <code class="inline">paciente_id</code> antes de processar; se inválido, dispara erro customizado com <code class="inline">SIGNAL SQLSTATE '45000'</code>.</p>
+      <pre><code>DELIMITER $$
+
+CREATE PROCEDURE sp_contar_consultas_2025 (
+    IN  p_paciente_id INT,
+    OUT p_total       INT
+)
+BEGIN
+    DECLARE v_existe        INT DEFAULT 0;
+    DECLARE v_consulta_id   INT;
+    DECLARE v_data          DATE;
+    DECLARE v_fim           BOOLEAN DEFAULT FALSE;
+    DECLARE v_contador      INT DEFAULT 0;
+
+    DECLARE cur_consultas CURSOR FOR
+        SELECT id, data_consulta
+        FROM consultas
+        WHERE paciente_id = p_paciente_id
+          AND YEAR(data_consulta) = 2025;
+
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_fim = TRUE;
+
+    SELECT COUNT(*) INTO v_existe
+    FROM pacientes WHERE id = p_paciente_id;
+
+    IF v_existe = 0 THEN
+        SIGNAL SQLSTATE '45000'
+          SET MESSAGE_TEXT = 'Erro: paciente_id informado não existe.';
+    END IF;
+
+    OPEN cur_consultas;
+    loop_consultas: LOOP
+        FETCH cur_consultas INTO v_consulta_id, v_data;
+        IF v_fim THEN LEAVE loop_consultas; END IF;
+        SET v_contador = v_contador + 1;
+    END LOOP;
+    CLOSE cur_consultas;
+
+    SET p_total = v_contador;
+END$$
+
+DELIMITER ;</code></pre>
+
+      <h3>Testes executados</h3>
+      <pre><code>CALL sp_contar_consultas_2025(1, @total1);
+SELECT @total1;   -- 2 consultas em 2025
+
+CALL sp_contar_consultas_2025(4, @total2);
+SELECT @total2;   -- 1 consulta em 2025
+
+CALL sp_contar_consultas_2025(999, @total3);
+-- Error Code: 1644
+-- Erro: paciente_id informado não existe.</code></pre>
+    </section>
+
+    <section id="indice">
+      <div class="section-tag">04 · Otimização de consulta</div>
+      <h2>Índice composto + EXPLAIN</h2>
+      <p>Query alvo, filtrando por <code class="inline">paciente_id</code> e <code class="inline">data_consulta</code>:</p>
+      <pre><code>SELECT id, paciente_id, data_consulta, especialidade
+FROM consultas
+WHERE paciente_id = 3
+  AND data_consulta >= '2025-01-01';</code></pre>
+
+      <h3>Índice criado</h3>
+      <pre><code>CREATE INDEX idx_consultas_paciente_data
+    ON consultas (paciente_id, data_consulta);</code></pre>
+
+      <div class="compare">
+        <div class="col before">
+          <div class="label">Antes do índice</div>
+          <div class="metric bad">type: ALL</div>
+          <div class="metric bad">key: NULL</div>
+          <div class="metric bad">rows: varredura completa</div>
+        </div>
+        <div class="arrow">→</div>
+        <div class="col after">
+          <div class="label">Depois do índice</div>
+          <div class="metric good">type: ref / range</div>
+          <div class="metric good">key: idx_consultas_paciente_data</div>
+          <div class="metric good">rows: reduzido ao subconjunto filtrado</div>
+        </div>
+      </div>
+    </section>
+
+    <section id="evidencias">
+      <div class="section-tag">05 · Evidências</div>
+      <h2>Capturas de execução</h2>
+      <p>Espaços reservados para os prints reais de execução — substituir os arquivos em <code class="inline">assets/</code> pelas capturas do ambiente MySQL utilizado.</p>
+      <div class="shots-grid">
+        <figure>
+          <img src="assets/explain-antes.png" alt="EXPLAIN antes do índice">
+          <figcaption>EXPLAIN — antes do índice composto
+            <span class="status">placeholder · substituir</span>
+          </figcaption>
+        </figure>
+        <figure>
+          <img src="assets/explain-depois.png" alt="EXPLAIN depois do índice">
+          <figcaption>EXPLAIN — depois do índice composto
+            <span class="status">placeholder · substituir</span>
+          </figcaption>
+        </figure>
+        <figure>
+          <img src="assets/procedure-ou-trigger.png" alt="Execução da procedure">
+          <figcaption>Execução de sp_contar_consultas_2025
+            <span class="status">placeholder · substituir</span>
+          </figcaption>
+        </figure>
+        <figure>
+          <img src="assets/schema.png" alt="Diagrama do schema">
+          <figcaption>Diagrama entidade-relacionamento do schema
+            <span class="status">placeholder · substituir</span>
+          </figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section id="reflexao">
+      <div class="section-tag">06 · Análise</div>
+      <h2>Reflexão técnica</h2>
+      <div class="reflexao">
+        <span class="mark">Índice composto e EXPLAIN</span>
+        <p>O EXPLAIN mostra ao otimizador quantas linhas o MySQL precisa varrer para responder a uma consulta. Sem índice, a busca por <code class="inline">paciente_id</code> e <code class="inline">data_consulta</code> exige varredura completa da tabela (type ALL). Com o índice composto <code class="inline">(paciente_id, data_consulta)</code>, o otimizador passa a usar a árvore B-Tree do índice para localizar diretamente o intervalo relevante, reduzindo o número de linhas examinadas e mudando o plano de execução para ref ou range. A ordem das colunas no índice importa: como as buscas filtram primeiro por paciente e depois por data, essa é a ordem que maximiza o aproveitamento do índice.</p>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<footer>
+  <span>lab_23092006 · Kevin Rhoden</span>
+  <span>MySQL 8.0 · sem deploy nesta etapa</span>
+</footer>
+
+</body>
+</html>
